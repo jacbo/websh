@@ -6,6 +6,7 @@ import pathlib
 import pty
 import signal
 from aiohttp import web, WSMsgType
+import pathlib
 
 
 async def index(request):
@@ -180,11 +181,38 @@ async def websocket_handler(request):
     return ws
 
 
+async def upload_handler(request):
+    # accept multipart file upload and save to ./uploads
+    reader = await request.multipart()
+    saved = []
+    uploads_dir = pathlib.Path(__file__).parent / 'uploads'
+    uploads_dir.mkdir(exist_ok=True)
+
+    while True:
+        field = await reader.next()
+        if field is None:
+            break
+        if field.filename:
+            filename = pathlib.Path(field.filename).name
+            dest = uploads_dir / filename
+            # write in chunks to file using thread to avoid blocking
+            with open(dest, 'wb') as f:
+                while True:
+                    chunk = await field.read_chunk()
+                    if not chunk:
+                        break
+                    await asyncio.to_thread(f.write, chunk)
+            saved.append(filename)
+
+    return web.json_response({'saved': saved})
+
+
 def main():
     app = web.Application()
     app.add_routes([
         web.get('/', index),
         web.get('/ws', websocket_handler),
+        web.post('/upload', upload_handler),
     ])
     app.router.add_static('/static/', pathlib.Path(__file__).parent / 'static')
     web.run_app(app, port=8080)

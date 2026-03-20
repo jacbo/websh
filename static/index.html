@@ -16,12 +16,14 @@
     .tab-bar .tab-btn{width:36px;height:36px;border-radius:8px;border:none;background:transparent;color:#0b486b;display:flex;align-items:center;justify-content:center;cursor:pointer;margin-bottom:6px}
     .tab-bar .tab-btn.active{background:#eaf4ff}
     .tab-content{flex:1;padding:8px;display:flex;flex-direction:column;box-sizing:border-box}
+    .tab-panel{display:none;flex-direction:column;min-height:0;height:100%}
+    .tab-panel .controls-wrap{display:flex;flex-direction:column;gap:8px}
     /* resizer sits between left and right */
     #resizer{width:8px;cursor:col-resize;background:transparent;display:flex;align-items:center;justify-content:center}
     #resizer:hover{background:linear-gradient(90deg,#f3f6fb,#eef6ff)}
     #right{flex:1;display:flex;flex-direction:column;min-height:0;height:100%}
     #term-views{flex:1;display:flex;flex-direction:column;min-height:0;height:100%}
-    #sessions{list-style:none;padding:0;margin:8px 0;flex:1;overflow:auto}
+    #sessions{list-style:none;padding:0;margin:8px 0;flex:1 1 auto;overflow:auto}
     #sessions li{padding:6px;border:1px solid #eee;margin-bottom:6px;cursor:pointer;border-radius:6px}
     #controls{display:flex;gap:6px;align-items:center}
     /* Compact, modern buttons */
@@ -48,21 +50,30 @@
   <div id="app">
     <div id="left">
       <div class="tab-bar" role="tablist">
-        <button class="tab-btn active" data-tab="tab-main" title="主面板"><i class="fa-solid fa-th-large"></i></button>
-        <button class="tab-btn" data-tab="tab-sessions" title="会话列表"><i class="fa-solid fa-list"></i></button>
+        <button class="tab-btn active" data-tab="tab-sessions" title="会话列表"><i class="fa-solid fa-list"></i></button>
+        <button class="tab-btn" data-tab="tab-upload" title="文件上传"><i class="fa-solid fa-upload"></i></button>
         <button class="tab-btn" data-tab="tab-settings" title="设置"><i class="fa-solid fa-gear"></i></button>
       </div>
       <div class="tab-content">
-        <div id="tab-main" class="tab-panel">
-          <div id="controls">
-            <button id="new" class="btn icon-only" title="新建会话"><span class="icon"><i class="fa-solid fa-plus"></i></span><span class="text">新建</span></button>
-            <button id="close" class="btn icon-only" title="关闭会话"><span class="icon"><i class="fa-solid fa-trash"></i></span><span class="text">关闭</span></button>
+        <div id="tab-sessions" class="tab-panel" style="display:flex">
+          <div class="controls-wrap">
+            <div id="controls">
+              <button id="new" class="btn icon-only" title="新建会话"><span class="icon"><i class="fa-solid fa-plus"></i></span><span class="text">新建</span></button>
+              <button id="close" class="btn icon-only" title="关闭会话"><span class="icon"><i class="fa-solid fa-trash"></i></span><span class="text">关闭</span></button>
+            </div>
           </div>
           <ul id="sessions"></ul>
         </div>
-        <div id="tab-sessions" class="tab-panel" style="display:none">
-          <h4 style="margin:6px 0 8px 0">会话</h4>
-          <div style="flex:1;overflow:auto;color:#666">当前会话列表也显示在主面板。</div>
+        <div id="tab-upload" class="tab-panel" style="display:none;flex-direction:column">
+          <h4 style="margin:6px 0 8px 0">文件上传</h4>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <input id="fileInput" type="file" multiple />
+            <div style="display:flex;gap:8px;align-items:center">
+              <button id="uploadBtn" class="btn">上传</button>
+              <div id="uploadStatus" style="color:#666"></div>
+            </div>
+            <progress id="uploadProgress" value="0" max="100" style="width:100%;display:none"></progress>
+          </div>
         </div>
         <div id="tab-settings" class="tab-panel" style="display:none">
           <h4 style="margin:6px 0 8px 0">设置</h4>
@@ -245,6 +256,50 @@
 
       resizer.addEventListener('pointerdown', onPointerDown);
     })();
+
+      // upload handling
+      const fileInput = document.getElementById('fileInput');
+      const uploadBtn = document.getElementById('uploadBtn');
+      const uploadProgress = document.getElementById('uploadProgress');
+      const uploadStatus = document.getElementById('uploadStatus');
+
+      uploadBtn.addEventListener('click', ()=>{
+        const files = fileInput.files;
+        if(!files || files.length === 0){
+          uploadStatus.textContent = '请选择文件';
+          return;
+        }
+
+        const form = new FormData();
+        for(const f of files) form.append('file', f, f.name);
+
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/upload');
+        xhr.upload.addEventListener('progress', (e)=>{
+          if(e.lengthComputable){
+            const pct = Math.round((e.loaded / e.total) * 100);
+            uploadProgress.style.display = 'block';
+            uploadProgress.value = pct;
+          }
+        });
+        xhr.onreadystatechange = ()=>{
+          if(xhr.readyState === 4){
+            uploadProgress.style.display = 'none';
+            if(xhr.status >= 200 && xhr.status < 300){
+              try{
+                const data = JSON.parse(xhr.responseText);
+                uploadStatus.textContent = '上传成功: ' + (data.saved || []).join(', ');
+              }catch(e){
+                uploadStatus.textContent = '上传成功';
+              }
+            }else{
+              uploadStatus.textContent = '上传失败';
+            }
+          }
+        };
+        xhr.send(form);
+        uploadStatus.textContent = '上传中...';
+      });
   </script>
 </body>
 </html>
