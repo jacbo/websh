@@ -10,7 +10,12 @@
     :root{--left-w:220px}
     html,body{height:100%;margin:0;font-family:Arial,Helvetica,sans-serif}
     #app{display:flex;height:100%}
-    #left{width:var(--left-w);border-right:1px solid #ddd;padding:8px;box-sizing:border-box;display:flex;flex-direction:column;height:100%}
+    #left{width:var(--left-w);border-right:1px solid #ddd;padding:0;box-sizing:border-box;display:flex;flex-direction:row;height:100%}
+    /* tab bar and content inside left */
+    .tab-bar{width:48px;background:#fbfdff;display:flex;flex-direction:column;align-items:center;padding-top:8px;border-right:1px solid #eef}
+    .tab-bar .tab-btn{width:36px;height:36px;border-radius:8px;border:none;background:transparent;color:#0b486b;display:flex;align-items:center;justify-content:center;cursor:pointer;margin-bottom:6px}
+    .tab-bar .tab-btn.active{background:#eaf4ff}
+    .tab-content{flex:1;padding:8px;display:flex;flex-direction:column;box-sizing:border-box}
     /* resizer sits between left and right */
     #resizer{width:8px;cursor:col-resize;background:transparent;display:flex;align-items:center;justify-content:center}
     #resizer:hover{background:linear-gradient(90deg,#f3f6fb,#eef6ff)}
@@ -42,11 +47,28 @@
 <body>
   <div id="app">
     <div id="left">
-      <div id="controls">
-        <button id="new" class="btn icon-only" title="新建会话"><span class="icon"><i class="fa-solid fa-plus"></i></span><span class="text">新建</span></button>
-        <button id="close" class="btn icon-only" title="关闭会话"><span class="icon"><i class="fa-solid fa-trash"></i></span><span class="text">关闭</span></button>
+      <div class="tab-bar" role="tablist">
+        <button class="tab-btn active" data-tab="tab-main" title="主面板"><i class="fa-solid fa-th-large"></i></button>
+        <button class="tab-btn" data-tab="tab-sessions" title="会话列表"><i class="fa-solid fa-list"></i></button>
+        <button class="tab-btn" data-tab="tab-settings" title="设置"><i class="fa-solid fa-gear"></i></button>
       </div>
-      <ul id="sessions"></ul>
+      <div class="tab-content">
+        <div id="tab-main" class="tab-panel">
+          <div id="controls">
+            <button id="new" class="btn icon-only" title="新建会话"><span class="icon"><i class="fa-solid fa-plus"></i></span><span class="text">新建</span></button>
+            <button id="close" class="btn icon-only" title="关闭会话"><span class="icon"><i class="fa-solid fa-trash"></i></span><span class="text">关闭</span></button>
+          </div>
+          <ul id="sessions"></ul>
+        </div>
+        <div id="tab-sessions" class="tab-panel" style="display:none">
+          <h4 style="margin:6px 0 8px 0">会话</h4>
+          <div style="flex:1;overflow:auto;color:#666">当前会话列表也显示在主面板。</div>
+        </div>
+        <div id="tab-settings" class="tab-panel" style="display:none">
+          <h4 style="margin:6px 0 8px 0">设置</h4>
+          <div style="color:#666">暂无可配置项。</div>
+        </div>
+      </div>
     </div>
     <div id="resizer" title=""></div>
     <div id="right">
@@ -170,6 +192,20 @@
 
     // auto create first session
     createSession();
+
+    // tab switching logic for left vertical tabs
+    const tabButtons = document.querySelectorAll('.tab-bar .tab-btn');
+    tabButtons.forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const target = btn.getAttribute('data-tab');
+        // toggle active button
+        tabButtons.forEach(b=>b.classList.toggle('active', b===btn));
+        // show/hide panels
+        document.querySelectorAll('.tab-panel').forEach(p=>{
+          p.style.display = p.id === target ? 'flex' : 'none';
+        });
+      });
+    });
 
     // sidebar resizer logic
     const resizer = document.getElementById('resizer');
