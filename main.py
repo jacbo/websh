@@ -182,19 +182,27 @@ async def websocket_handler(request):
 
 
 async def upload_handler(request):
-    # accept multipart file upload and save to ./uploads
+    # accept multipart file upload and save to target directory (query param 'dir') or ./uploads
+    target_dir_q = request.query.get('dir')
+    if target_dir_q:
+        target_dir = pathlib.Path(target_dir_q).expanduser()
+    else:
+        target_dir = pathlib.Path(__file__).parent / 'uploads'
+    try:
+        target_dir = target_dir.resolve()
+    except Exception:
+        pass
+    target_dir.mkdir(parents=True, exist_ok=True)
+
     reader = await request.multipart()
     saved = []
-    uploads_dir = pathlib.Path(__file__).parent / 'uploads'
-    uploads_dir.mkdir(exist_ok=True)
-
     while True:
         field = await reader.next()
         if field is None:
             break
         if field.filename:
             filename = pathlib.Path(field.filename).name
-            dest = uploads_dir / filename
+            dest = target_dir / filename
             # write in chunks to file using thread to avoid blocking
             with open(dest, 'wb') as f:
                 while True:
@@ -202,9 +210,53 @@ async def upload_handler(request):
                     if not chunk:
                         break
                     await asyncio.to_thread(f.write, chunk)
-            saved.append(filename)
+            saved.append(str(dest))
 
-    return web.json_response({'saved': saved})
+    return web.json_response({'saved': saved, 'dir': str(target_dir)})
+
+
+async def list_handler(request):
+    dir_q = request.query.get('dir')
+    if not dir_q:
+        base = pathlib.Path.home()
+    else:
+        base = pathlib.Path(dir_q).expanduser()
+    try:
+        base = base.resolve()
+    except Exception:
+        pass
+    items = []
+    if base.exists() and base.is_dir():
+        try:
+            for p in sorted(base.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())):
+                st = p.stat()
+                items.append({
+                    'name': p.name,
+                    'path': str(p),
+                    'is_dir': p.is_dir(),
+                    'size': st.st_size if p.is_file() else 0,
+                    'mtime': int(st.st_mtime),
+                })
+        except PermissionError:
+            return web.json_response({'path': str(base), 'items': [], 'error': 'permission denied'}, status=403)
+    else:
+        return web.json_response({'path': str(base), 'items': [], 'error': 'not a directory'}, status=400)
+
+    return web.json_response({'path': str(base), 'items': items})
+
+
+async def download_handler(request):
+    path_q = request.query.get('path')
+    if not path_q:
+        return web.Response(status=400, text='missing path')
+    p = pathlib.Path(path_q).expanduser()
+    try:
+        p = p.resolve()
+    except Exception:
+        pass
+    if not p.exists() or not p.is_file():
+        return web.Response(status=404, text='not found')
+    return web.FileResponse(p)
 
 
 def main():
@@ -213,6 +265,8 @@ def main():
         web.get('/', index),
         web.get('/ws', websocket_handler),
         web.post('/upload', upload_handler),
+        web.get('/list', list_handler),
+        web.get('/download', download_handler),
     ])
     app.router.add_static('/static/', pathlib.Path(__file__).parent / 'static')
     web.run_app(app, port=8080)

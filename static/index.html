@@ -65,14 +65,22 @@
           <ul id="sessions"></ul>
         </div>
         <div id="tab-upload" class="tab-panel" style="display:none;flex-direction:column">
-          <h4 style="margin:6px 0 8px 0">文件上传</h4>
+          <h4 style="margin:6px 0 8px 0">文件上传 & 目录预览</h4>
           <div style="display:flex;flex-direction:column;gap:8px">
+            <div style="display:flex;gap:8px;align-items:center">
+              <input id="dirInput" type="text" placeholder="目录（留空表示用户主目录）" style="flex:1;padding:6px;border:1px solid #ddd;border-radius:6px" />
+              <button id="dirRefresh" class="btn">刷新</button>
+            </div>
             <input id="fileInput" type="file" multiple />
             <div style="display:flex;gap:8px;align-items:center">
               <button id="uploadBtn" class="btn">上传</button>
               <div id="uploadStatus" style="color:#666"></div>
             </div>
             <progress id="uploadProgress" value="0" max="100" style="width:100%;display:none"></progress>
+            <div id="fileListContainer" style="flex:1;overflow:auto;border-top:1px solid #f0f0f0;padding-top:8px">
+              <div id="currentPath" style="font-size:12px;color:#666;margin-bottom:6px"></div>
+              <ul id="fileList" style="list-style:none;padding:0;margin:0"></ul>
+            </div>
           </div>
         </div>
         <div id="tab-settings" class="tab-panel" style="display:none">
@@ -257,11 +265,141 @@
       resizer.addEventListener('pointerdown', onPointerDown);
     })();
 
-      // upload handling
+      // upload handling + directory preview
       const fileInput = document.getElementById('fileInput');
       const uploadBtn = document.getElementById('uploadBtn');
       const uploadProgress = document.getElementById('uploadProgress');
       const uploadStatus = document.getElementById('uploadStatus');
+      const dirInput = document.getElementById('dirInput');
+      const dirRefresh = document.getElementById('dirRefresh');
+      const fileList = document.getElementById('fileList');
+      const currentPath = document.getElementById('currentPath');
+
+      let previewDir = null;
+
+      function formatBytes(bytes){
+        if(bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B','KB','MB','GB','TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+      }
+
+      async function loadList(dir){
+        const url = '/list' + (dir ? ('?dir=' + encodeURIComponent(dir)) : '');
+        try{
+          const res = await fetch(url);
+          if(!res.ok) throw new Error('list failed');
+          const data = await res.json();
+          previewDir = data.path;
+          currentPath.textContent = data.path;
+          dirInput.value = data.path;
+          fileList.innerHTML = '';
+          function getParentPath(p){
+            if(!p) return '';
+            p = p.replace(/[\\/]+$/,'');
+            const idx1 = p.lastIndexOf('/');
+            const idx2 = p.lastIndexOf('\\\\');
+            const idx = Math.max(idx1, idx2);
+            if(idx <= 0) return p.slice(0, idx+1) || '/';
+            return p.slice(0, idx);
+          }
+
+          // add parent '..' entry if possible
+          const parentPath = getParentPath(data.path || '');
+          if(parentPath && parentPath !== data.path){
+            const liUp = document.createElement('li');
+            liUp.style.padding = '6px';
+            liUp.style.borderBottom = '1px solid #f0f0f0';
+            liUp.style.display = 'flex';
+            liUp.style.justifyContent = 'space-between';
+            liUp.style.alignItems = 'center';
+            const leftUp = document.createElement('div');
+            leftUp.style.display = 'flex';
+            leftUp.style.alignItems = 'center';
+            leftUp.style.gap = '8px';
+            const iconUp = document.createElement('i');
+            iconUp.className = 'fa-solid fa-level-up-alt';
+            leftUp.appendChild(iconUp);
+            const nameUp = document.createElement('span');
+            nameUp.textContent = '..';
+            leftUp.appendChild(nameUp);
+            liUp.appendChild(leftUp);
+            const rightUp = document.createElement('div');
+            const btnUp = document.createElement('button');
+            btnUp.className = 'btn';
+            btnUp.textContent = '上级';
+            btnUp.addEventListener('click', ()=> loadList(parentPath));
+            rightUp.appendChild(btnUp);
+            liUp.appendChild(rightUp);
+            fileList.appendChild(liUp);
+          }
+
+          for(const it of data.items){
+            const li = document.createElement('li');
+            li.style.padding = '6px';
+            li.style.borderBottom = '1px solid #f0f0f0';
+            li.style.display = 'flex';
+            li.style.justifyContent = 'space-between';
+            li.style.alignItems = 'center';
+            const left = document.createElement('div');
+            left.style.display = 'flex';
+            left.style.alignItems = 'center';
+            left.style.gap = '8px';
+            const icon = document.createElement('i');
+            icon.className = it.is_dir ? 'fa-solid fa-folder' : 'fa-regular fa-file';
+            left.appendChild(icon);
+            const name = document.createElement('span');
+            name.textContent = it.name;
+            left.appendChild(name);
+            li.appendChild(left);
+            const right = document.createElement('div');
+            right.style.display = 'flex';
+            right.style.gap = '8px';
+            right.style.alignItems = 'center';
+            // size
+            const sizeSpan = document.createElement('span');
+            sizeSpan.style.fontSize = '12px';
+            sizeSpan.style.color = '#666';
+            sizeSpan.style.minWidth = '80px';
+            sizeSpan.style.textAlign = 'right';
+            sizeSpan.textContent = it.is_dir ? '-' : formatBytes(it.size || 0);
+            right.appendChild(sizeSpan);
+            // mtime
+            const mtimeSpan = document.createElement('span');
+            mtimeSpan.style.fontSize = '12px';
+            mtimeSpan.style.color = '#666';
+            mtimeSpan.style.minWidth = '140px';
+            mtimeSpan.style.textAlign = 'right';
+            mtimeSpan.textContent = it.mtime ? new Date(it.mtime * 1000).toLocaleString() : '';
+            right.appendChild(mtimeSpan);
+            if(!it.is_dir){
+              const a = document.createElement('a');
+              a.href = '/download?path=' + encodeURIComponent(it.path);
+              a.textContent = '下载';
+              a.target = '_blank';
+              a.style.fontSize = '12px';
+              a.style.color = '#0b486b';
+              right.appendChild(a);
+            } else {
+              const btn = document.createElement('button');
+              btn.className = 'btn';
+              btn.textContent = '进入';
+              btn.addEventListener('click', ()=> loadList(it.path));
+              right.appendChild(btn);
+            }
+            li.appendChild(right);
+            fileList.appendChild(li);
+          }
+        }catch(e){
+          currentPath.textContent = '无法列出目录';
+        }
+      }
+
+      // initial load -> default (home)
+      loadList('');
+
+      dirRefresh.addEventListener('click', ()=> loadList(dirInput.value.trim() || ''));
 
       uploadBtn.addEventListener('click', ()=>{
         const files = fileInput.files;
@@ -273,8 +411,11 @@
         const form = new FormData();
         for(const f of files) form.append('file', f, f.name);
 
+        const target = dirInput.value.trim();
+        const url = '/upload' + (target ? ('?dir=' + encodeURIComponent(target)) : '');
+
         const xhr = new XMLHttpRequest();
-        xhr.open('POST', '/upload');
+        xhr.open('POST', url);
         xhr.upload.addEventListener('progress', (e)=>{
           if(e.lengthComputable){
             const pct = Math.round((e.loaded / e.total) * 100);
@@ -288,7 +429,10 @@
             if(xhr.status >= 200 && xhr.status < 300){
               try{
                 const data = JSON.parse(xhr.responseText);
-                uploadStatus.textContent = '上传成功: ' + (data.saved || []).join(', ');
+                uploadStatus.textContent = '上传成功';
+                // refresh listing for target dir
+                const listdir = data.dir || dirInput.value.trim() || '';
+                loadList(listdir);
               }catch(e){
                 uploadStatus.textContent = '上传成功';
               }
