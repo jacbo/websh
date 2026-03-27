@@ -5,7 +5,7 @@ import sys
 import pathlib
 import pty
 import signal
-from aiohttp import web, WSMsgType
+from aiohttp import web, WSMsgType, ClientSession
 import pathlib
 
 
@@ -259,6 +259,32 @@ async def download_handler(request):
     return web.FileResponse(p)
 
 
+HOP_BY_HOP = {
+    'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
+    'te', 'trailers', 'transfer-encoding', 'upgrade'
+}
+
+
+async def ollama_proxy(request):
+    app = request.app
+    path = request.match_info.get('path', '') or ''
+    base = 'http://127.0.0.1:11434'
+    url = f"{base}/{path}" if path else f"{base}/"
+    if request.query_string:
+        url = url + ('&' if '?' in url else '?') + request.query_string
+
+    headers = {k: v for k, v in request.headers.items() if k.lower() != 'host'}
+    try:
+        body = await request.read()
+    except Exception:
+        body = None
+
+    async with app['client'].request(request.method, url, headers=headers, data=body) as resp:
+        data = await resp.read()
+        resp_headers = {k: v for k, v in resp.headers.items() if k.lower() not in HOP_BY_HOP}
+        return web.Response(status=resp.status, body=data, headers=resp_headers)
+
+
 def main():
     app = web.Application()
     app.add_routes([
@@ -268,6 +294,17 @@ def main():
         web.get('/list', list_handler),
         web.get('/download', download_handler),
     ])
+    # proxy ollama requests (all methods)
+    app.router.add_route('*', '/ollama', ollama_proxy)
+    app.router.add_route('*', '/ollama/{path:.*}', ollama_proxy)
+
+    # create a shared client session and close on cleanup
+    app['client'] = ClientSession()
+
+    async def on_cleanup(app):
+        await app['client'].close()
+
+    app.on_cleanup.append(on_cleanup)
     app.router.add_static('/static/', pathlib.Path(__file__).parent / 'static')
     web.run_app(app, port=8080)
 
